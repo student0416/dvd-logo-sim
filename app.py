@@ -37,51 +37,34 @@ def calculate_t_field(res, th):
             min_t = np.minimum(min_t, np.where(mask & hit, t_v, 10000.0))
     return ps, qs, np.log10(min_t + 1)
 
+# --- セッション状態の初期化 ---
+if 'playing' not in st.session_state:
+    st.session_state.playing = False
+if 'current_theta' not in st.session_state:
+    st.session_state.current_theta = 0.78  # 初期値
+
 # --- サイドバー設定 ---
 st.sidebar.header("シミュレーション設定")
 
 # 解像度設定
 res_option = st.sidebar.select_slider(
     "解像度 (res)", options=[50, 100, 150, 200], value=100,
-    help="再生ボタンを使う場合は、100以下がスムーズに動くため推奨です。"
+    help="再生時は100以下がスムーズです。"
 )
 
-# 再生機能の実装
-if 'playing' not in st.session_state:
-    st.session_state.playing = False
-
-def toggle_playback():
+# 再生ボタン
+if st.sidebar.button("▶ 再生 / ⏸ 停止"):
     st.session_state.playing = not st.session_state.playing
 
-# 再生ボタンと手動スライダー
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    if st.button("▶ 再生 / ⏸ 停止"):
-        toggle_playback()
+# 手動スライダー（再生中でない時のみ有効に見えるよう配置）
+theta_slider = st.sidebar.slider("角度 θ (rad) の手動調整", 0.0, 2 * np.pi, st.session_state.current_theta, 0.05)
 
-theta_slider = st.sidebar.slider("角度 θ (rad) の手動選択", 0.0, 2 * np.pi, 0.78, 0.05)
-
-# アニメーション処理
-if st.session_state.playing:
-    # 再生中の角度を保持するための状態
-    if 'current_theta' not in st.session_state:
-        st.session_state.current_theta = theta_slider
-    
-    # 角度を更新
-    st.session_state.current_theta += 0.1
-    if st.session_state.current_theta > 2 * np.pi:
-        st.session_state.current_theta = 0
-    
-    current_theta = st.session_state.current_theta
-    # 再実行をトリガー（少し待機して滑らかに）
-    time.sleep(0.05)
-    st.rerun()
-else:
-    current_theta = theta_slider
+# 再生中ならスライダーの値を無視して更新、停止中ならスライダーの値を反映
+if not st.session_state.playing:
     st.session_state.current_theta = theta_slider
 
 # --- 計算と描画 ---
-ps, qs, T_log = calculate_t_field(res_option, current_theta)
+ps, qs, T_log = calculate_t_field(res_option, st.session_state.current_theta)
 
 fig = go.Figure(data=go.Heatmap(
     z=T_log, x=ps, y=qs, colorscale='Blues', zmin=0, zmax=4,
@@ -89,13 +72,26 @@ fig = go.Figure(data=go.Heatmap(
 ))
 
 fig.update_layout(
-    title=f"到達時間分布 (θ = {current_theta:.2f} rad)",
+    title=f"到達時間分布 (θ = {st.session_state.current_theta:.2f} rad)",
     xaxis_title="横位置 p", yaxis_title="縦位置 q",
     width=800, height=650
 )
 
-st.plotly_chart(fig, use_container_width=True)
+# メイン画面にグラフを表示
+plot_spot = st.empty()  # 描画エリアを確保
+plot_spot.plotly_chart(fig, use_container_width=True)
 
 # 負荷説明
-st.sidebar.markdown(f"**現在の角度:** `{current_theta:.2f}` rad")
-st.sidebar.info("💡 **ポスター閲覧者へ:** \n再生ボタンを押すと角度が自動で変化します。解像度を上げると動きがゆっくりになります。")
+st.sidebar.markdown(f"**現在の状態:** {'再生中 🏃' if st.session_state.playing else '停止中 🛑'}")
+st.sidebar.markdown(f"**現在の角度:** `{st.session_state.current_theta:.2f}` rad")
+
+# --- 再生ロジック ---
+if st.session_state.playing:
+    # 角度を更新
+    st.session_state.current_theta += 0.1
+    if st.session_state.current_theta > 2 * np.pi:
+        st.session_state.current_theta = 0
+    
+    # 待ち時間を少し入れて再描画（これがないと一瞬で終わるか、ブラウザが固まる）
+    time.sleep(0.1)
+    st.rerun()
